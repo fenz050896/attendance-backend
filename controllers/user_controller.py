@@ -1,15 +1,24 @@
 import base64
-from flask import Blueprint, jsonify, request
+from uuid import UUID
+from flask import Blueprint, jsonify, request, send_file
 from flask_jwt_extended import verify_jwt_in_request, current_user
 
-from models import UserModel, UserTensealContextModel, UserProfileModel
+from models import (
+    UserModel,
+    UserTensealContextModel,
+    UserProfileModel,
+    UserRegisteredFacesModel,
+    UserEncryptedFaceEmbeddingModel,
+)
 
 from schemas.user.user_schema import UserSchema
 
 user_controller = Blueprint('user_controller', __name__, url_prefix='/user')
 user_profile_controller = Blueprint('user_profile_controller', __name__, url_prefix='/profile')
+user_face_verification_controller = Blueprint('user_face_verification_controller', __name__, url_prefix='/face-verification')
 
 user_controller.register_blueprint(user_profile_controller)
+user_controller.register_blueprint(user_face_verification_controller)
 
 @user_controller.before_request
 def before_request():
@@ -125,7 +134,7 @@ def save_context_key():
             'message': str(e)
         }), 500
     
-@user_profile_controller.route('check-saved-context-key', methods=['GET'])
+@user_profile_controller.route('/check-saved-context-key', methods=['GET'])
 def check_saved_context_key():
     try:
         user = current_user
@@ -151,7 +160,7 @@ def check_saved_context_key():
             'message': str(e)
         }), 500
     
-@user_profile_controller.route('get-saved-context-key', methods=['GET'])
+@user_profile_controller.route('/get-saved-context-key', methods=['GET'])
 def get_saved_context_key():
     try:
         user = current_user
@@ -175,6 +184,92 @@ def get_saved_context_key():
             'message': 'Context key found',
             'data': data
         })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+    
+@user_face_verification_controller.route('/register-faces', methods=['POST'])
+def register_faces():
+    try:
+        user = current_user
+        req_inputs = request.get_json()
+
+        if not isinstance(req_inputs, list):
+            return jsonify({
+                'error': True,
+                'message': 'Input not a list'
+            }), 500
+
+        for req_input in req_inputs:
+            rgb_img = base64.b64decode(req_input['rgb_img'])
+            real_img = base64.b64decode(req_input['real_img'])
+            filename = req_input['filename']
+            size = req_input['size']
+            mime_type = req_input['mime_type']
+            encrypted_embedding = base64.b64decode(req_input['encrypted_embedding'])
+            detection_score = req_input['detection_score']
+
+            registered_face = UserRegisteredFacesModel.create({
+                'user_id': user.id,
+                'filename': filename,
+                'mime_type': mime_type,
+                'size': size,
+                'real_content': real_img,
+                'rgb_content': rgb_img,
+            })
+
+            UserEncryptedFaceEmbeddingModel.create({
+                'user_id': user.id,
+                'source_file_id': registered_face.id,
+                'embedding': encrypted_embedding,
+                'detection_score': detection_score,
+            })
+
+        UserRegisteredFacesModel.commit()
+        UserEncryptedFaceEmbeddingModel.commit()
+
+        return jsonify({
+            'error': False,
+            'message': 'Faces registered successfully',
+            'data': None
+        })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+    
+@user_face_verification_controller.route('/registered-faces', methods=['GET'])
+def get_registered_faces():
+    try:
+        user = current_user
+        user_registered_faces = UserRegisteredFacesModel.where(user_id=user.id).all()
+
+        result = []
+        for face in user_registered_faces:
+            data = {
+                'id': face.id,
+                'mime_type': face.mime_type,
+            }
+            result.append(data)
+
+        return jsonify({
+            'error': False,
+            'message': '',
+            'data': result
+        })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+    
+@user_face_verification_controller.route('/registered-faces/<string:registered_face_id>', methods=['GET'])
+def registered_face_get_content(registered_face_id):
+    try:
+        pass
     except Exception as e:
         return jsonify({
             'error': True,
