@@ -1,6 +1,6 @@
 import base64
 from uuid import UUID
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, jsonify, request, Response
 from flask_jwt_extended import verify_jwt_in_request, current_user
 
 from models import (
@@ -203,8 +203,8 @@ def register_faces():
             }), 500
 
         for req_input in req_inputs:
-            rgb_img = base64.b64decode(req_input['rgb_img'])
             real_img = base64.b64decode(req_input['real_img'])
+            rgb_img = base64.b64decode(req_input['rgb_img'])
             filename = req_input['filename']
             size = req_input['size']
             mime_type = req_input['mime_type']
@@ -241,7 +241,7 @@ def register_faces():
             'message': str(e)
         }), 500
     
-@user_face_verification_controller.route('/registered-faces', methods=['GET'])
+@user_face_verification_controller.route('/get-registered-faces', methods=['GET'])
 def get_registered_faces():
     try:
         user = current_user
@@ -266,12 +266,18 @@ def get_registered_faces():
             'message': str(e)
         }), 500
     
-@user_face_verification_controller.route('/registered-faces/<string:registered_face_id>', methods=['GET'])
+@user_face_verification_controller.route('/registered-face/<string:registered_face_id>', methods=['GET'])
 def registered_face_get_content(registered_face_id):
-    try:
-        pass
-    except Exception as e:
+    user = current_user
+    user_registered_face = UserRegisteredFacesModel.where(id=registered_face_id, user_id=user.id).first()
+
+    if not user_registered_face:
         return jsonify({
             'error': True,
-            'message': str(e)
-        }), 500
+            'message': 'Picture not found',
+            'data': None
+        })
+    
+    return Response(user_registered_face.real_content, mimetype=user_registered_face.mime_type, headers={
+        'Content-Length': str(len(user_registered_face.real_content))
+    })
