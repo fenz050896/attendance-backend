@@ -2,6 +2,7 @@ import base64
 from uuid import UUID
 from flask import Blueprint, jsonify, request, Response
 from flask_jwt_extended import verify_jwt_in_request, current_user
+import tenseal as ts
 
 from models import (
     UserModel,
@@ -15,9 +16,11 @@ from schemas.user.user_schema import UserSchema
 
 user_controller = Blueprint('user_controller', __name__, url_prefix='/user')
 user_profile_controller = Blueprint('user_profile_controller', __name__, url_prefix='/profile')
+user_face_registration_controller = Blueprint('user_face_registration_controller', __name__, url_prefix='/face-registration')
 user_face_verification_controller = Blueprint('user_face_verification_controller', __name__, url_prefix='/face-verification')
 
 user_controller.register_blueprint(user_profile_controller)
+user_controller.register_blueprint(user_face_registration_controller)
 user_controller.register_blueprint(user_face_verification_controller)
 
 @user_controller.before_request
@@ -190,7 +193,7 @@ def get_saved_context_key():
             'message': str(e)
         }), 500
     
-@user_face_verification_controller.route('/register-faces', methods=['POST'])
+@user_face_registration_controller.route('/register-faces', methods=['POST'])
 def register_faces():
     try:
         user = current_user
@@ -241,7 +244,7 @@ def register_faces():
             'message': str(e)
         }), 500
     
-@user_face_verification_controller.route('/get-registered-faces', methods=['GET'])
+@user_face_registration_controller.route('/get-registered-faces', methods=['GET'])
 def get_registered_faces():
     try:
         user = current_user
@@ -266,7 +269,7 @@ def get_registered_faces():
             'message': str(e)
         }), 500
     
-@user_face_verification_controller.route('/registered-face/<string:registered_face_id>', methods=['GET'])
+@user_face_registration_controller.route('/registered-face/<string:registered_face_id>', methods=['GET'])
 def registered_face_get_content(registered_face_id):
     user = current_user
     user_registered_face = UserRegisteredFacesModel.where(id=registered_face_id, user_id=user.id).first()
@@ -281,3 +284,33 @@ def registered_face_get_content(registered_face_id):
     return Response(user_registered_face.real_content, mimetype=user_registered_face.mime_type, headers={
         'Content-Length': str(len(user_registered_face.real_content))
     })
+
+@user_face_verification_controller.route('/verify', methods=['POST'])
+def verify_face():
+    try:
+        user = current_user
+        req_inputs = request.get_json()
+        input_face = base64.b64decode(req_inputs['encrypted_embedding'])
+        input_ctx = base64.b64decode(req_inputs['ctx'])
+
+        context = ts.context_from(input_ctx)
+        face_embedding = ts.ckks_vector_from(context, input_face)
+
+        user_embeddings = UserEncryptedFaceEmbeddingModel.where(user_id=user.id).all()
+        results = []
+        for user_embedding in user_embeddings:
+            registered_face = ts.ckks_vector_from(context, user_embedding.embedding)
+            result = face_embedding.dot(registered_face)
+            result = base64.b64encode(result.serialize()).decode()
+            results.append(result)
+
+        return jsonify({
+            'error': False,
+            'message': 'Success',
+            'data': results
+        })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
