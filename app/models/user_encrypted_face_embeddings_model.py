@@ -4,7 +4,7 @@ from sqlalchemy import Uuid, LargeBinary, String, BigInteger
 from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy import ForeignKey, UniqueConstraint
 
-from database import BaseModel
+from app.database import BaseModel
 
 class UserEncryptedFaceEmbeddingModel(BaseModel):
     __tablename__ = "user_encrypted_face_embeddings"

@@ -1,10 +1,10 @@
 from flask import Blueprint, jsonify, request
 from argon2 import PasswordHasher
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, jwt_required
 
-from models.user_model import UserModel
-from models.user_profile_model import UserProfileModel
-from schemas.user.user_schema import UserSchema
+from app.models.user_model import UserModel
+from app.models.user_profile_model import UserProfileModel
+from app.schemas.user.user_schema import UserSchema
 
 auth_controller = Blueprint('auth_controller', __name__, url_prefix='/auth')
 
@@ -49,8 +49,6 @@ def register():
 def login():
     data = request.get_json()
 
-    ph = PasswordHasher()
-
     validate = UserModel.validate(data, 'login')
     if isinstance(validate, tuple):
         return jsonify({
@@ -58,12 +56,14 @@ def login():
             'message': validate[0]
         }), validate[1]
     
+    
     try:
         request_input = validate.model_dump()
         email = request_input['email']
         password = request_input['password']
+        ph = PasswordHasher()
         
-        user = UserModel.where(email=email).first()
+        user = UserModel.where(UserModel.email == email).first()
 
         if user is None:
             return jsonify({
@@ -98,6 +98,7 @@ def login():
         }), 500
 
 @auth_controller.route('/logout', methods=['POST'])
+@jwt_required()
 def logout():
     return jsonify({
         'error': False,

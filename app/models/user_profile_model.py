@@ -6,8 +6,8 @@ from sqlalchemy import String, Uuid
 from sqlalchemy.orm import mapped_column, relationship, Mapped
 from pydantic import ValidationError, BaseModel as PydanticBaseModel
 
-from database import BaseModel
-from schemas.user import UserProfileUpdateSchema, UserProfileSchema
+from app.database import BaseModel
+from app.schemas.user import UserProfileUpdateSchema, UserProfileSchema
 
 
 class UserProfileModel(BaseModel):

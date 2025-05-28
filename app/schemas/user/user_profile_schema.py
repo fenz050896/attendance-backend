@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import Field, ConfigDict, UUID4
-from .base_schema import BaseSchema, BaseModel
+from ..base_schema import BaseSchema, BaseModel
 
 class UserProfileSchema(BaseSchema):
     model_config = ConfigDict(from_attributes=True, extra='allow')

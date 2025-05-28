@@ -1,11 +1,12 @@
 from uuid import uuid4
+from typing import Optional
 
-from sqlalchemy import Uuid, String
+from sqlalchemy import Uuid, String, ForeignKey, Integer
 from sqlalchemy.orm import mapped_column, relationship, Mapped
 from pydantic import ValidationError, BaseModel as PydanticBaseModel
 
-from database import BaseModel
-from schemas.user import LoginSchema, RegisterSchema, UserSchema
+from app.database import BaseModel
+from app.schemas.user import LoginSchema, RegisterSchema, UserSchema
 
 class UserModel(BaseModel):
     __tablename__ = "users"
@@ -15,7 +16,9 @@ class UserModel(BaseModel):
     full_name: Mapped[str] = mapped_column(String(100))
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     password: Mapped[str] = mapped_column(String(255))
-    profile: Mapped["UserProfileModel"] = relationship(back_populates="user", cascade="all, delete-orphan", )
+    role_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("user_roles.id"), nullable=True)
+    profile: Mapped["UserProfileModel"] = relationship(back_populates="user", cascade="all, delete-orphan")
+    role: Mapped[Optional["UserRoleModel"]] = relationship()
 
     @classmethod
     def validate(cls, data: dict, schema: str) -> PydanticBaseModel | tuple[list|str, int]:

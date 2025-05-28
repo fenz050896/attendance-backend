@@ -1,27 +1,33 @@
 import base64
-from uuid import UUID
 from flask import Blueprint, jsonify, request, Response
 from flask_jwt_extended import verify_jwt_in_request, current_user
 import tenseal as ts
+import calendar
+from datetime import date, time, datetime
+from sqlalchemy import or_
 
-from models import (
+from app.models import (
     UserModel,
     UserTensealContextModel,
     UserProfileModel,
     UserRegisteredFacesModel,
     UserEncryptedFaceEmbeddingModel,
+    UserAttendanceModel,
+    AppConfigModel,
 )
 
-from schemas.user.user_schema import UserSchema
+from app.database import cast_uuid
 
 user_controller = Blueprint('user_controller', __name__, url_prefix='/user')
 user_profile_controller = Blueprint('user_profile_controller', __name__, url_prefix='/profile')
 user_face_registration_controller = Blueprint('user_face_registration_controller', __name__, url_prefix='/face-registration')
 user_face_verification_controller = Blueprint('user_face_verification_controller', __name__, url_prefix='/face-verification')
+user_attendance_controller = Blueprint('user_attendance_controller', __name__, url_prefix='/attendances')
 
 user_controller.register_blueprint(user_profile_controller)
 user_controller.register_blueprint(user_face_registration_controller)
 user_controller.register_blueprint(user_face_verification_controller)
+user_controller.register_blueprint(user_attendance_controller)
 
 @user_controller.before_request
 def before_request():
@@ -39,7 +45,7 @@ def index():
 
 @user_controller.route('/<string:user_id>', methods=['GET'])
 def show(user_id):
-    user = UserModel.find(id=user_id)
+    user = UserModel.find(user_id)
     if not user:
         return jsonify({
             'error': True,
@@ -65,7 +71,7 @@ def delete():
 @user_profile_controller.route('/update/<string:user_id>', methods=['PUT'])
 def update(user_id):
     try:
-        user_profile = UserProfileModel.where(user_id=user_id).first()
+        user_profile = UserProfileModel.where(UserProfileModel.user_id == cast_uuid(user_id)).first()
         if not user_profile:
             return jsonify({
                 'error': True,
@@ -114,7 +120,7 @@ def save_context_key():
 
         req_input = request.get_json()
 
-        saved_context = UserTensealContextModel.where(user_id=user.id).first()
+        saved_context = UserTensealContextModel.where(UserTensealContextModel.user_id == cast_uuid(user.id)).first()
         context = base64.b64decode(req_input['context'])
         if saved_context:
             saved_context.context = context
@@ -142,7 +148,7 @@ def check_saved_context_key():
     try:
         user = current_user
 
-        saved_context = UserTensealContextModel.where(user_id=user.id).first()
+        saved_context = UserTensealContextModel.where(UserTensealContextModel.user_id == cast_uuid(user.id)).first()
         if not saved_context:
             return jsonify({
                 'error': True,
@@ -168,7 +174,7 @@ def get_saved_context_key():
     try:
         user = current_user
 
-        saved_context = UserTensealContextModel.where(user_id=user.id).first()
+        saved_context = UserTensealContextModel.where(UserTensealContextModel.user_id == cast_uuid(user.id)).first()
         if not saved_context:
             return jsonify({
                 'error': True,
@@ -248,7 +254,7 @@ def register_faces():
 def get_registered_faces():
     try:
         user = current_user
-        user_registered_faces = UserRegisteredFacesModel.where(user_id=user.id).all()
+        user_registered_faces = UserRegisteredFacesModel.where(UserRegisteredFacesModel.user_id == cast_uuid(user.id)).all()
 
         result = []
         for face in user_registered_faces:
@@ -272,7 +278,10 @@ def get_registered_faces():
 @user_face_registration_controller.route('/registered-face/<string:registered_face_id>', methods=['GET'])
 def registered_face_get_content(registered_face_id):
     user = current_user
-    user_registered_face = UserRegisteredFacesModel.where(id=registered_face_id, user_id=user.id).first()
+    user_registered_face = UserRegisteredFacesModel.where(
+        UserRegisteredFacesModel.id == cast_uuid(registered_face_id),
+        UserRegisteredFacesModel.user_id == cast_uuid(user.id)
+    ).first()
 
     if not user_registered_face:
         return jsonify({
@@ -296,7 +305,7 @@ def verify_face():
         context = ts.context_from(input_ctx)
         face_embedding = ts.ckks_vector_from(context, input_face)
 
-        user_embeddings = UserEncryptedFaceEmbeddingModel.where(user_id=user.id).all()
+        user_embeddings = UserEncryptedFaceEmbeddingModel.where(UserEncryptedFaceEmbeddingModel.user_id == cast_uuid(user.id)).all()
         results = []
         for user_embedding in user_embeddings:
             registered_face = ts.ckks_vector_from(context, user_embedding.embedding)
@@ -309,6 +318,181 @@ def verify_face():
             'message': 'Success',
             'data': results
         })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+    
+@user_attendance_controller.route('', methods=['GET'])
+def get_user_attendance_list():
+    try:
+        user = current_user
+        paginate = request.args.get('paginate', '0')
+        paginate = paginate == '1'
+        page = int(request.args.get('page', '1'))
+        per_page = int(request.args.get('per_page', '10'))
+        year = int(request.args.get('year', '-1'))
+        month = int(request.args.get('month', '-1'))
+        valid_year_month = year != -1 or month != -1
+
+        data = UserAttendanceModel.where(UserAttendanceModel.user_id == cast_uuid(user.id))
+        if valid_year_month:
+            _, last_day = calendar.monthrange(year, month)
+            start_date = date(year, month, 1)
+            end_date = date(year, month, last_day)
+
+            data = data.where(
+                UserAttendanceModel.day_date >= start_date,
+                UserAttendanceModel.day_date <= end_date,
+            )
+
+        data = (
+            data.paginate(page=page, per_page=per_page, serialize=True, mode='json') if paginate 
+            else data.all(serialize=True, mode='json')
+        )
+
+        return jsonify({
+            'error': False,
+            'message': 'Success',
+            'data': data
+        })
+
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+
+@user_attendance_controller.route('/check-today-presence', methods=['GET'])
+def check_today_presence():
+    try:
+        user = current_user
+        today = date.today()
+
+        attendance = UserAttendanceModel.where(
+            UserAttendanceModel.user_id == cast_uuid(user.id),
+            UserAttendanceModel.day_date == today
+        ).first()
+
+        if not attendance:
+            return jsonify({
+                'error': True,
+                'message': 'No attendance record found for today',
+                'data': None
+            }), 404
+        
+        clock_in = None
+        if attendance.clock_in:
+            clock_in = attendance.clock_in.strftime('%H:%M')
+        
+        clock_out = None
+        if attendance.clock_out:
+            clock_out = attendance.clock_out.strftime('%H:%M')
+
+        return jsonify({
+            'error': False,
+            'message': 'Attendance record found',
+            'data': {
+                'clock_in': clock_in,
+                'clock_out': clock_out,
+                'day_date': attendance.day_date.strftime('%Y-%m-%d'),
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'error': True,
+            'message': str(e)
+        }), 500
+    
+@user_attendance_controller.route('/presence', methods=['POST'])
+def verify_presence():
+    try:
+        user = current_user
+        req_inputs = request.get_json()
+
+        current_date: str = req_inputs['current_date'] # 2025-05-27
+        current_time: str = req_inputs['current_time'] # 09:00:00
+        attendance_type: str = req_inputs['attendance_type'] # clock_in or clock_out
+
+        date_current_date = datetime.strptime(current_date, '%Y-%m-%d').date()
+        time_current_time = datetime.strptime(current_time, '%H:%M:%S').time()
+
+        configs = AppConfigModel.where(or_(AppConfigModel.field == 'clock_in', AppConfigModel.field == 'clock_out')).all()
+
+        clock_in: str = None # 09:00
+        clock_out: str = None # 17:00
+
+        for config in configs:
+            if config.field == 'clock_in':
+                clock_in = config.value
+            else:
+                clock_out = config.value
+
+        if not clock_in or not clock_out:
+            return jsonify({
+                'error': True,
+                'message': 'Clock in or clock out time not set'
+            }), 500
+        
+        attendance = UserAttendanceModel.where(
+            UserAttendanceModel.user_id == cast_uuid(user.id),
+            UserAttendanceModel.day_date == date_current_date
+        ).first()
+
+        late_clock_in = False
+        early_clock_out = False
+
+        if attendance_type == 'clock_in':
+            if time_current_time > datetime.strptime(clock_in, '%H:%M').time():
+                late_clock_in = True
+        elif attendance_type == 'clock_out':
+            if time_current_time < datetime.strptime(clock_out, '%H:%M').time():
+                early_clock_out = True
+        else:
+            return jsonify({
+                'error': True,
+                'message': 'Invalid attendance type'
+            }), 400
+
+        if not attendance:
+            attendance = UserAttendanceModel.create({
+                'user_id': user.id,
+                'day_date': date_current_date,
+                'clock_in': time_current_time,
+                'late_in': late_clock_in,
+            })
+        else:
+            if attendance_type == 'clock_in':
+                if attendance.clock_in:
+                    return jsonify({
+                        'error': True,
+                        'message': 'You have already clocked in today'
+                    }), 400
+                attendance.clock_in = time_current_time
+                attendance.late_in = late_clock_in
+            elif attendance_type == 'clock_out':
+                if not attendance.clock_in:
+                    return jsonify({
+                        'error': True,
+                        'message': 'You must clock in before clocking out'
+                    }), 400
+                if attendance.clock_out:
+                    return jsonify({
+                        'error': True,
+                        'message': 'You have already clocked out today'
+                    }), 400
+                attendance.clock_out = time_current_time
+                attendance.early_out = early_clock_out
+
+        attendance.commit()
+
+        return jsonify({
+            'error': False,
+            'message': 'Success',
+            'data': attendance.to_dict(None, mode='json')
+        })
+
     except Exception as e:
         return jsonify({
             'error': True,

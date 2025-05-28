@@ -2,7 +2,7 @@ from sqlalchemy import Uuid, LargeBinary
 from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy import ForeignKey, UniqueConstraint
 
-from database import BaseModel
+from app.database import BaseModel
 
 class UserTensealContextModel(BaseModel):
     __tablename__ = "user_tenseal_context"
